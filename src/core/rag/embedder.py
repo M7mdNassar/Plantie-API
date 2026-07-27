@@ -1,5 +1,5 @@
 from typing import List
-import time
+import asyncio
 from src.config import get_settings
 
 settings = get_settings()
@@ -7,7 +7,7 @@ settings = get_settings()
 class Embedder:
     def __init__(self):
         self.provider = settings.EMBEDDING_PROVIDER
-        self.embedding_dim = 384  # BGE-small-en-v1.5 outputs 384
+        self.embedding_dim = 384
 
         if self.provider == "fastembed":
             from fastembed import TextEmbedding
@@ -36,6 +36,7 @@ class Embedder:
         except:
             return 3072
 
+    # ---- Sync methods (for backward compatibility) ----
     def get_embedding(self, text: str) -> List[float]:
         return self.get_embeddings_batch([text])[0]
 
@@ -43,7 +44,6 @@ class Embedder:
         if not texts:
             return []
         if self.provider == "fastembed":
-            # fastembed returns a generator of numpy arrays
             embeddings = list(self.model.embed(texts))
             return [emb.tolist() for emb in embeddings]
         elif self.provider == "gemini":
@@ -51,8 +51,15 @@ class Embedder:
         else:
             raise ValueError("Unknown provider")
 
+    # ---- Async methods (offload to thread) ----
+    async def get_embedding_async(self, text: str) -> List[float]:
+        return await asyncio.to_thread(self.get_embedding, text)
+
+    async def get_embeddings_batch_async(self, texts: List[str]) -> List[List[float]]:
+        return await asyncio.to_thread(self.get_embeddings_batch, texts)
+
     def _gemini_batch(self, texts: List[str]) -> List[List[float]]:
-        import random, re
+        import random, re, time
         from google.api_core.exceptions import ResourceExhausted
         retries = 10
         for attempt in range(retries):

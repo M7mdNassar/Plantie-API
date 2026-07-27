@@ -1,4 +1,5 @@
 from typing import AsyncGenerator, List, Dict, Any
+import asyncio
 import google.generativeai as genai
 from src.config import get_settings
 from src.core.rag.retriever import Retriever
@@ -26,13 +27,13 @@ class ChatAgent:
         session_id: str,
         location: Dict[str, float] = None
     ) -> AsyncGenerator[str, None]:
-        # 1. Retrieve context
-        context_chunks = self.retriever.retrieve(message)
+        # 1. Fetch context and conversation in parallel
+        context_task = self.retriever.retrieve(message)
+        conv_task = self.db.get_conversation(conversation_id, user_id)
 
-        # 2. Get or create conversation
-        conversation = await self.db.get_conversation(conversation_id, user_id)
+        context_chunks, conversation = await asyncio.gather(context_task, conv_task)
+
         if conversation is None:
-            # Create new conversation
             new_conv = await self.db.create_conversation(
                 user_id=user_id,
                 session_id=session_id,
@@ -44,14 +45,14 @@ class ChatAgent:
         else:
             history = conversation.get("messages", [])[-10:]
 
-        # 3. Build prompt
+        # 2. Build prompt (fast, no I/O)
         prompt = self.prompt_builder.build(
             query=message,
             context=context_chunks,
             conversation_history=history
         )
 
-        # 4. Stream from Gemini
+        # 3. Stream from Gemini (already streaming, no need to offload)
         try:
             response = self.model.generate_content(
                 f"{prompt}\n\nUser: {message}\nAssistant:",
@@ -64,7 +65,7 @@ class ChatAgent:
                     full_response += chunk.text
                     yield chunk.text
 
-            # 5. Save conversation (always update, even for new)
+            # 4. Save conversation (offloaded to thread)
             updated_messages = history + [{"user": message, "assistant": full_response}]
             await self.db.update_conversation(
                 conversation_id=conversation_id,
