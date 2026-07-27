@@ -1,7 +1,6 @@
-# src/api/routes/chat.py
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sse_starlette.sse import EventSourceResponse
-from src.api.models.chat import ChatRequest, ChatResponse
+from src.api.models.chat import ChatRequest
 from src.api.dependencies.auth import get_current_user
 from src.core.agent.chat import ChatAgent
 from src.services.supabase.database import DatabaseService
@@ -18,22 +17,9 @@ async def chat_stream(
         user: dict = Depends(get_current_user)
 ):
     """Stream chat response with SSE."""
-
     user_id = user["user_id"]
     logger.info(f"Chat request from user {user_id}", extra={"user_id": user_id})
 
-    # Check free chat attempts
-    db = DatabaseService()
-    user_data = await db.get_user_by_id(user_id)
-    free_attempts = user_data.get("free_chat_attempts", 0)
-
-    if free_attempts <= 0:
-        raise HTTPException(status_code=403, detail="No free chat attempts remaining")
-
-    # Decrement free attempts
-    # TODO: Update user's free_chat_attempts in Supabase
-
-    # Create agent and stream
     agent = ChatAgent()
 
     async def event_generator():

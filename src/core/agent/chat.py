@@ -27,8 +27,8 @@ class ChatAgent:
         session_id: str,
         location: Dict[str, float] = None
     ) -> AsyncGenerator[str, None]:
-        # 1. Fetch context and conversation in parallel
-        context_task = self.retriever.retrieve(message)
+        # 1. Fetch context (only top 3) and conversation in parallel
+        context_task = self.retriever.retrieve(message, top_k=3)  # Reduced from 5
         conv_task = self.db.get_conversation(conversation_id, user_id)
 
         context_chunks, conversation = await asyncio.gather(context_task, conv_task)
@@ -43,16 +43,17 @@ class ChatAgent:
             conversation = new_conv
             history = []
         else:
-            history = conversation.get("messages", [])[-10:]
+            # Keep only last 3 messages (reduce history)
+            history = conversation.get("messages", [])[-3:]
 
-        # 2. Build prompt (fast, no I/O)
+        # 2. Build prompt (lightweight)
         prompt = self.prompt_builder.build(
             query=message,
             context=context_chunks,
             conversation_history=history
         )
 
-        # 3. Stream from Gemini (already streaming, no need to offload)
+        # 3. Stream from Gemini – yields tokens immediately
         try:
             response = self.model.generate_content(
                 f"{prompt}\n\nUser: {message}\nAssistant:",
@@ -63,9 +64,9 @@ class ChatAgent:
             for chunk in response:
                 if chunk.text:
                     full_response += chunk.text
-                    yield chunk.text
+                    yield chunk.text  # <-- SSE will flush immediately
 
-            # 4. Save conversation (offloaded to thread)
+            # 4. Save conversation (async, non‑blocking)
             updated_messages = history + [{"user": message, "assistant": full_response}]
             await self.db.update_conversation(
                 conversation_id=conversation_id,
