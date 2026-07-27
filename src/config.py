@@ -23,7 +23,8 @@ class Settings(BaseSettings):
     # Gemini
     GEMINI_API_KEY: Optional[str] = None
     OPENAI_API_KEY: Optional[str] = None
-    GEMINI_MODEL: str = "models/gemini-flash-latest"
+
+    GEMINI_MODEL: str = "models/gemini-1.5-flash-8b"
     GEMINI_EMBEDDING_MODEL: str = "models/gemini-embedding-001"
 
     # Embedding
