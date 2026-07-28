@@ -1,11 +1,9 @@
-# src/config.py
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 from typing import Optional
 import os
 from dotenv import load_dotenv
 
-# Load .env file
 load_dotenv()
 
 class Settings(BaseSettings):
@@ -20,24 +18,26 @@ class Settings(BaseSettings):
     SUPABASE_SERVICE_ROLE_KEY: str
     SUPABASE_JWT_SECRET: str
 
-    # Gemini
+    # Gemini (fallback)
     GEMINI_API_KEY: Optional[str] = None
-    OPENAI_API_KEY: Optional[str] = None
+    GEMINI_MODEL: str = "models/gemini-1.5-flash"
 
-    GEMINI_MODEL: str = "models/gemini-1.5-flash-8b"
-    GEMINI_EMBEDDING_MODEL: str = "models/gemini-embedding-001"
+    # Mistral
+    MISTRAL_API_KEY: Optional[str] = None
+    MISTRAL_MODEL: str = "mistral-small-latest"
 
-    # Embedding
+    # LLM Provider: "mistral" or "gemini"
+    LLM_PROVIDER: str = "mistral"
+
+    # Embedding (always local fastembed)
     EMBEDDING_PROVIDER: str = "fastembed"
     FASTEMBED_MODEL: str = "BAAI/bge-small-en-v1.5"
-    EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"
-    GEMINI_EMBEDDING_MODEL: str = "models/gemini-embedding-001"  # for fallback
 
     # RAG
-    RAG_CHUNK_SIZE: int = 1000
-    RAG_CHUNK_OVERLAP: int = 200
-    RAG_TOP_K: int = 5
-    RAG_MIN_RELEVANCE_SCORE: float = 0.7
+    RAG_TOP_K: int = 2
+    RAG_MAX_HISTORY: int = 1
+    SKIP_RETRIEVAL_FOR_SHORT_QUERIES: bool = True
+    SHORT_QUERY_THRESHOLD: int = 20
 
     # Rate Limiting
     RATE_LIMIT_ENABLED: bool = True
@@ -50,8 +50,7 @@ class Settings(BaseSettings):
 
     @property
     def gemini_api_key(self) -> str:
-        return self.GEMINI_API_KEY or self.OPENAI_API_KEY
-
+        return self.GEMINI_API_KEY
 
 @lru_cache()
 def get_settings() -> Settings:
