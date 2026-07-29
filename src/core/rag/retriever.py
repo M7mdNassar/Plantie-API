@@ -1,29 +1,33 @@
-from typing import List, Dict, Any
+"""Vector similarity search over the `chunks` table via the `match_chunks` RPC.
+
+Takes an already-built Embedder and Supabase client (both constructed once
+at startup, see src/main.py) — this class does no expensive setup of its own.
+"""
+
 import asyncio
-from supabase import create_client
-from src.core.rag.embedder import Embedder
+from typing import Any, Dict, List, Optional
+
+from supabase import Client
+
 from src.config import get_settings
+from src.core.rag.embedder import Embedder
 
 settings = get_settings()
 
+
 class Retriever:
-    def __init__(self):
-        self.client = create_client(
-            settings.SUPABASE_URL,
-            settings.SUPABASE_SERVICE_ROLE_KEY
-        )
-        self.embedder = Embedder()
+    def __init__(self, embedder: Embedder, client: Client):
+        self.embedder = embedder
+        self.client = client
         self.top_k = settings.RAG_TOP_K
         self.min_score = settings.RAG_MIN_RELEVANCE_SCORE
 
-    async def retrieve(self, query: str, top_k: int = None) -> List[Dict[str, Any]]:
-        """Async retrieval – offloads embedding and DB call to threads."""
+    async def retrieve(self, query: str, top_k: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Async retrieval — embedding and the DB call both run in a thread."""
         top_k = top_k or self.top_k
 
-        # 1. Generate query embedding (offloaded)
         query_embedding = await self.embedder.get_embedding_async(query)
 
-        # 2. Vector search (offloaded because Supabase client is sync)
         def _search():
             try:
                 response = self.client.rpc(
@@ -31,8 +35,8 @@ class Retriever:
                     {
                         "query_embedding": query_embedding,
                         "match_threshold": self.min_score,
-                        "match_count": top_k
-                    }
+                        "match_count": top_k,
+                    },
                 ).execute()
                 return response.data
             except Exception as e:
