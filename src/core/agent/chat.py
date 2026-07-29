@@ -45,16 +45,16 @@ class ChatAgent:
             {"role": "user", "content": message},
         ]
         try:
-            async with self.client.chat.stream_async(
+            # ✅ Correct: await the stream_async() call before using `async with`
+            async with await self.client.chat.stream_async(
                 model=self.model,
                 messages=messages,
                 temperature=0.7,
                 max_tokens=800,
             ) as response:
                 async for chunk in response:
-                    delta = chunk.data.choices[0].delta.content
-                    if delta is not None:
-                        yield delta
+                    if chunk.data.choices and chunk.data.choices[0].delta.content is not None:
+                        yield chunk.data.choices[0].delta.content
         except Exception as e:
             yield f"Error: {str(e)}"
 
