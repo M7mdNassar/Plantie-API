@@ -20,13 +20,13 @@ class Settings(BaseSettings):
 
     # ── Gemini (fallback LLM + fallback embeddings) ─────────────────────
     GEMINI_API_KEY: Optional[str] = None
-    GEMINI_MODEL: str = "models/gemini-1.5-flash"
+    GEMINI_MODEL: str = "models/gemini-1.5-flash-8b"
     GEMINI_EMBEDDING_MODEL: str = "models/gemini-embedding-001"
 
     # ── Mistral (primary LLM) ───────────────────────────────────────────
     MISTRAL_API_KEY: Optional[str] = None
     MISTRAL_MODEL: str = "mistral-small-latest"
-    LLM_PROVIDER: str = "mistral"  # "mistral" | "gemini"
+    LLM_PROVIDER: str = "gemini"  # "mistral" | "gemini"
 
     # ── Embeddings (local, always fastembed) ────────────────────────────
     EMBEDDING_PROVIDER: str = "fastembed"
