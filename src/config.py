@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     # ── Embeddings (local, always fastembed) ────────────────────────────
     EMBEDDING_PROVIDER: str = "fastembed"
     FASTEMBED_MODEL: str = "BAAI/bge-small-en-v1.5"
+    FASTEMBED_CACHE_DIR: str = "/app/.fastembed_cache"
 
     # ── RAG ──────────────────────────────────────────────────────────────
     RAG_CHUNK_SIZE: int = 1000
