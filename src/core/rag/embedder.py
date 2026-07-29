@@ -24,7 +24,10 @@ class Embedder:
         if self.provider == "fastembed":
             from fastembed import TextEmbedding
 
-            self.model = TextEmbedding(model_name=settings.FASTEMBED_MODEL)
+            self.model = TextEmbedding(
+                model_name=settings.FASTEMBED_MODEL,
+                cache_dir=settings.FASTEMBED_CACHE_DIR,
+            )
             logger.info(
                 f"Loaded local embedding model: {settings.FASTEMBED_MODEL} "
                 f"(dim={self.embedding_dim})"
