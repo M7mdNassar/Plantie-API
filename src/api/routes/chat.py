@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sse_starlette.sse import EventSourceResponse
-from src.api.models.chat import ChatRequest
+
 from src.api.dependencies.auth import get_current_user
+from src.api.models.chat import ChatRequest
 from src.core.agent.chat import ChatAgent
 from src.services.supabase.database import DatabaseService
 from src.utils.logging import get_logger
@@ -10,25 +11,31 @@ router = APIRouter()
 logger = get_logger()
 
 
+def get_chat_agent(request: Request) -> ChatAgent:
+    return request.app.state.chat_agent
+
+
+def get_db(request: Request) -> DatabaseService:
+    return request.app.state.db
+
+
 @router.post("/chat/stream")
 async def chat_stream(
-        request: ChatRequest,
-        req: Request,
-        user: dict = Depends(get_current_user)
+    request: ChatRequest,
+    user: dict = Depends(get_current_user),
+    agent: ChatAgent = Depends(get_chat_agent),
 ):
     """Stream chat response with SSE."""
     user_id = user["user_id"]
-    logger.info(f"Chat request from user {user_id}", extra={"user_id": user_id})
-
-    agent = ChatAgent()
+    logger.info(f"Chat request from user {user_id}")
 
     async def event_generator():
         async for chunk in agent.stream_response(
-                user_id=user_id,
-                message=request.message,
-                conversation_id=request.conversation_id,
-                session_id=request.session_id,
-                location=request.location
+            user_id=user_id,
+            message=request.message,
+            conversation_id=request.conversation_id,
+            session_id=request.session_id,
+            location=request.location,
         ):
             yield {"data": chunk}
         yield {"data": "[DONE]"}
@@ -38,24 +45,22 @@ async def chat_stream(
 
 @router.get("/chat/conversations")
 async def get_conversations(
-        req: Request,
-        limit: int = 20,
-        user: dict = Depends(get_current_user)
+    limit: int = 20,
+    user: dict = Depends(get_current_user),
+    db: DatabaseService = Depends(get_db),
 ):
-    """Get user's conversations."""
-    db = DatabaseService()
+    """Get the authenticated user's conversations."""
     conversations = await db.get_conversations(user["user_id"], limit)
     return {"conversations": conversations}
 
 
 @router.get("/chat/conversations/{conversation_id}")
 async def get_conversation(
-        conversation_id: str,
-        req: Request,
-        user: dict = Depends(get_current_user)
+    conversation_id: str,
+    user: dict = Depends(get_current_user),
+    db: DatabaseService = Depends(get_db),
 ):
     """Get a specific conversation."""
-    db = DatabaseService()
     conversation = await db.get_conversation(conversation_id, user["user_id"])
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
@@ -64,11 +69,10 @@ async def get_conversation(
 
 @router.delete("/chat/conversations/{conversation_id}")
 async def delete_conversation(
-        conversation_id: str,
-        req: Request,
-        user: dict = Depends(get_current_user)
+    conversation_id: str,
+    user: dict = Depends(get_current_user),
+    db: DatabaseService = Depends(get_db),
 ):
     """Delete a conversation."""
-    db = DatabaseService()
     await db.delete_conversation(conversation_id, user["user_id"])
     return {"message": "Conversation deleted"}

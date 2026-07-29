@@ -1,46 +1,45 @@
-from fastapi import Request, HTTPException
-from collections import defaultdict
+"""In-memory, per-key rate limiter.
+
+Checked once per request, inside the auth dependency (see
+src/api/dependencies/auth.py) right after the user is resolved — not as a
+separate global middleware, so a request is never rate-limited before we
+even know who it's for.
+
+Note: this state lives in process memory. If you run more than one worker
+or pod, each one enforces its own limit independently (so the *effective*
+limit is roughly max_requests * worker_count). Fine for a single instance;
+move to a shared store (e.g. Redis) if you scale horizontally.
+"""
+
 import time
+from collections import defaultdict
+
 from src.config import get_settings
 
 settings = get_settings()
 
+
 class RateLimiter:
-    def __init__(self, max_requests: int = 60, period: int = 60):
+    def __init__(self, max_requests: int, period: int):
         self.max_requests = max_requests
         self.period = period
-        self.tokens = defaultdict(int)
-        self.last_reset = defaultdict(int)
+        self._tokens: dict[str, int] = defaultdict(int)
+        self._reset_at: dict[str, float] = defaultdict(float)
 
-    async def check(self, user_id: str) -> bool:
+    def check(self, key: str) -> bool:
         if not settings.RATE_LIMIT_ENABLED:
             return True
         now = time.time()
-        if now - self.last_reset[user_id] > self.period:
-            self.tokens[user_id] = 0
-            self.last_reset[user_id] = now
-        if self.tokens[user_id] >= self.max_requests:
+        if now > self._reset_at[key]:
+            self._tokens[key] = 0
+            self._reset_at[key] = now + self.period
+        if self._tokens[key] >= self.max_requests:
             return False
-        self.tokens[user_id] += 1
+        self._tokens[key] += 1
         return True
+
 
 rate_limiter = RateLimiter(
     max_requests=settings.RATE_LIMIT_MAX_REQUESTS,
-    period=settings.RATE_LIMIT_PERIOD
+    period=settings.RATE_LIMIT_PERIOD,
 )
-
-async def rate_limit_middleware(request: Request, call_next):
-    path = request.url.path
-    if (path in ["/", "/docs", "/openapi.json", "/redoc"] or
-        path.startswith("/docs/") or path.startswith("/redoc/") or
-        path.startswith("/api/v1/health") or
-        path.startswith("/api/v1/test")):
-        return await call_next(request)
-
-    user_id = getattr(request.state, 'user_id', 'anonymous')
-    if not await rate_limiter.check(user_id):
-        raise HTTPException(
-            status_code=429,
-            detail="Rate limit exceeded. Please try again later."
-        )
-    return await call_next(request)

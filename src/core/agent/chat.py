@@ -1,32 +1,39 @@
-from typing import AsyncGenerator, List, Dict, Any
+"""Built exactly once at startup (see src/main.py's lifespan) and reused for
+every request. The Mistral / Gemini SDK clients each wrap their own HTTP
+connection pool, so reusing one instance across requests also means
+connections get reused instead of a fresh TLS handshake every time.
+"""
+
 import asyncio
+from typing import AsyncGenerator, Dict, List, Optional
+
 import google.generativeai as genai
 from mistralai import Mistral
+
 from src.config import get_settings
-from src.core.rag.retriever import Retriever
 from src.core.rag.prompts import PromptBuilder
+from src.core.rag.retriever import Retriever
 from src.services.supabase.database import DatabaseService
 
 settings = get_settings()
 
+
 class ChatAgent:
-    def __init__(self):
-        self.provider = settings.LLM_PROVIDER
+    def __init__(self, retriever: Retriever, db: DatabaseService):
+        self.retriever = retriever
+        self.db = db
         self.prompt_builder = PromptBuilder()
-        self.retriever = Retriever()
-        self.db = DatabaseService()
+        self.provider = settings.LLM_PROVIDER
 
         if self.provider == "mistral":
-            api_key = settings.MISTRAL_API_KEY
-            if not api_key:
+            if not settings.MISTRAL_API_KEY:
                 raise ValueError("MISTRAL_API_KEY required")
-            self.client = Mistral(api_key=api_key)
+            self.client = Mistral(api_key=settings.MISTRAL_API_KEY)
             self.model = settings.MISTRAL_MODEL
         elif self.provider == "gemini":
-            api_key = settings.gemini_api_key
-            if not api_key:
+            if not settings.GEMINI_API_KEY:
                 raise ValueError("Gemini API key missing")
-            genai.configure(api_key=api_key)
+            genai.configure(api_key=settings.GEMINI_API_KEY)
             self.model = genai.GenerativeModel(settings.GEMINI_MODEL)
         else:
             raise ValueError(f"Unsupported LLM provider: {self.provider}")
@@ -35,11 +42,9 @@ class ChatAgent:
         """Stream from Mistral (fast, first token < 500ms)."""
         messages = [
             {"role": "system", "content": prompt},
-            {"role": "user", "content": message}
+            {"role": "user", "content": message},
         ]
-
         try:
-            # Mistral async streaming
             async with self.client.chat.stream_async(
                 model=self.model,
                 messages=messages,
@@ -47,8 +52,9 @@ class ChatAgent:
                 max_tokens=800,
             ) as response:
                 async for chunk in response:
-                    if chunk.data.choices[0].delta.content is not None:
-                        yield chunk.data.choices[0].delta.content
+                    delta = chunk.data.choices[0].delta.content
+                    if delta is not None:
+                        yield delta
         except Exception as e:
             yield f"Error: {str(e)}"
 
@@ -57,7 +63,7 @@ class ChatAgent:
         try:
             response = self.model.generate_content(
                 f"{prompt}\n\nUser: {message}\nAssistant:",
-                stream=True
+                stream=True,
             )
             for chunk in response:
                 if chunk.text:
@@ -71,9 +77,9 @@ class ChatAgent:
         message: str,
         conversation_id: str,
         session_id: str,
-        location: Dict[str, float] = None
+        location: Optional[Dict[str, float]] = None,
     ) -> AsyncGenerator[str, None]:
-        # 1. Skip retrieval for short queries
+        # 1. Skip retrieval for short, likely conversational queries.
         is_short = len(message) <= settings.SHORT_QUERY_THRESHOLD
         should_retrieve = not (settings.SKIP_RETRIEVAL_FOR_SHORT_QUERIES and is_short)
 
@@ -90,27 +96,28 @@ class ChatAgent:
             new_conv = await self.db.create_conversation(
                 user_id=user_id,
                 session_id=session_id,
-                title=message[:50] + "..."
+                title=message[:50] + "...",
             )
             conversation_id = new_conv["id"]
             conversation = new_conv
             history = []
         else:
-            history = conversation.get("messages", [])[-settings.RAG_MAX_HISTORY:]
+            history = conversation.get("messages", [])[-settings.RAG_MAX_HISTORY :]
 
         # 3. Build prompt
         prompt = self.prompt_builder.build(
             query=message,
             context=context_chunks,
             conversation_history=history,
-            is_short=is_short
+            is_short=is_short,
         )
 
         # 4. Stream from selected provider
-        if self.provider == "mistral":
-            generator = self._stream_mistral(prompt, message)
-        else:
-            generator = self._stream_gemini(prompt, message)
+        generator = (
+            self._stream_mistral(prompt, message)
+            if self.provider == "mistral"
+            else self._stream_gemini(prompt, message)
+        )
 
         full_response = ""
         try:
@@ -125,7 +132,7 @@ class ChatAgent:
                 user_id=user_id,
                 messages=updated_messages,
                 message_count=len(updated_messages),
-                tokens_used=0
+                tokens_used=0,
             )
         except Exception as e:
             yield f"Error: {str(e)}"
