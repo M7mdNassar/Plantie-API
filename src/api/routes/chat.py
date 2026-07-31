@@ -36,6 +36,7 @@ async def chat_stream(
             conversation_id=request.conversation_id,
             session_id=request.session_id,
             location=request.location,
+            weather=request.weather,
         ):
             yield {"data": chunk}
         yield {"data": "[DONE]"}

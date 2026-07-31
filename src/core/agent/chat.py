@@ -5,7 +5,7 @@ connections get reused instead of a fresh TLS handshake every time.
 """
 
 import asyncio
-from typing import AsyncGenerator, Dict, List, Optional
+from typing import AsyncGenerator, Dict, List, Optional, Any
 
 import google.generativeai as genai
 from mistralai import Mistral
@@ -45,7 +45,6 @@ class ChatAgent:
             {"role": "user", "content": message},
         ]
         try:
-            # ✅ Correct: await the stream_async() call before using `async with`
             async with await self.client.chat.stream_async(
                 model=self.model,
                 messages=messages,
@@ -78,6 +77,7 @@ class ChatAgent:
         conversation_id: str,
         session_id: str,
         location: Optional[Dict[str, float]] = None,
+        weather: Optional[Dict[str, Any]] = None,
     ) -> AsyncGenerator[str, None]:
         # 1. Skip retrieval for short, likely conversational queries.
         is_short = len(message) <= settings.SHORT_QUERY_THRESHOLD
@@ -104,12 +104,13 @@ class ChatAgent:
         else:
             history = conversation.get("messages", [])[-settings.RAG_MAX_HISTORY :]
 
-        # 3. Build prompt
+        # 3. Build prompt with weather
         prompt = self.prompt_builder.build(
             query=message,
             context=context_chunks,
             conversation_history=history,
             is_short=is_short,
+            weather=weather,
         )
 
         # 4. Stream from selected provider
