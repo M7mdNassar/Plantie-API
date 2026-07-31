@@ -56,6 +56,7 @@ async def test_chat_stream(request: ChatRequest, req: Request):
             conversation_id=request.conversation_id,
             session_id=request.session_id,
             location=request.location,
+            weather=request.weather,
         ):
             yield {"data": chunk}
         yield {"data": "[DONE]"}

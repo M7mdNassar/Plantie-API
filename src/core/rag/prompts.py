@@ -16,6 +16,8 @@ If the user asks about something not in the context, use your general knowledge.
 Always consider the user's location (if provided) for personalized advice.
 
 **Language**: Respond in the same language as the user's question.
+
+**Follow‑up suggestions**: After your response, suggest up to 3 follow‑up questions the user might ask. Each suggestion must be on a new line starting with "- " (dash and space). Do not add any extra text after the suggestions.
 """
 
     SYSTEM_PROMPT_AR = """أنت Plantie AI، مساعد زراعي خبير.
@@ -32,14 +34,29 @@ Always consider the user's location (if provided) for personalized advice.
 ضع في اعتبارك دائماً موقع المستخدم (إذا تم توفيره) للحصول على نصائح مخصصة.
 
 **اللغة**: أجب بنفس لغة سؤال المستخدم.
+
+**اقتراحات المتابعة**: بعد ردك، اقترح ما يصل إلى 3 أسئلة متابعة قد يسألها المستخدم. يجب أن يكون كل اقتراح في سطر جديد يبدأ بـ "- " (شرطة ومسافة). لا تضف أي نص إضافي بعد الاقتراحات.
 """
 
     def _detect_language(self, text: str) -> str:
-        """Simple detection: returns 'ar' if Arabic characters are present, else 'en'."""
         arabic_pattern = re.compile(r'[\u0600-\u06FF]')
-        if arabic_pattern.search(text):
-            return 'ar'
-        return 'en'
+        return 'ar' if arabic_pattern.search(text) else 'en'
+
+    def _format_weather(self, weather: Optional[Dict[str, Any]]) -> str:
+        if not weather:
+            return ""
+        parts = []
+        if "temperature" in weather:
+            parts.append(f"Temperature: {weather['temperature']}°C")
+        if "humidity" in weather:
+            parts.append(f"Humidity: {weather['humidity']}%")
+        if "condition" in weather:
+            parts.append(f"Condition: {weather['condition']}")
+        if "wind_speed" in weather:
+            parts.append(f"Wind: {weather['wind_speed']} km/h")
+        if "precipitation" in weather:
+            parts.append(f"Precipitation: {weather['precipitation']} mm")
+        return "Current weather at user's location:\n" + "\n".join(parts) if parts else ""
 
     def build(
         self,
@@ -47,16 +64,19 @@ Always consider the user's location (if provided) for personalized advice.
         context: List[Dict[str, Any]],
         conversation_history: Optional[List[Dict[str, str]]] = None,
         is_short: bool = False,
+        weather: Optional[Dict[str, Any]] = None,
     ) -> str:
-        # Choose system prompt based on detected language
         lang = self._detect_language(query)
         system_prompt = self.SYSTEM_PROMPT_AR if lang == 'ar' else self.SYSTEM_PROMPT_EN
 
-        # Format retrieved context, if any.
+        # Weather section
+        weather_text = self._format_weather(weather)
+
+        # Context
         context_text = ""
         if context:
             formatted_chunks = []
-            for chunk in context[:2]:  # only top 2 chunks
+            for chunk in context[:2]:
                 meta = chunk.get("metadata", {})
                 source = meta.get("source", "Unknown")
                 page = meta.get("page", "N/A")
@@ -67,7 +87,7 @@ Always consider the user's location (if provided) for personalized advice.
                 )
             context_text = "\n\n".join(formatted_chunks)
 
-        # Format recent conversation history (only last message)
+        # History
         history_text = ""
         if conversation_history:
             history_text = "\n".join(
@@ -75,23 +95,24 @@ Always consider the user's location (if provided) for personalized advice.
                 for msg in conversation_history[-1:]
             )
 
-        # Short, conversational messages skip context entirely
         context_section = (
             context_text
             if context_text
             else ("" if is_short else "No relevant context found.")
         )
 
-        return f"""{system_prompt}
+        # Combine
+        sections = []
+        if weather_text:
+            sections.append(f"## Weather\n{weather_text}")
+        if context_section:
+            sections.append(f"## Context\n{context_section}")
+        if history_text:
+            sections.append(f"## Previous Conversation\n{history_text}")
+        else:
+            sections.append("## Previous Conversation\nNo previous conversation.")
+        sections.append(f"## Question\n{query}")
+        sections.append("## Response")
 
-## Context
-{context_section}
-
-## Previous Conversation
-{history_text if history_text else "No previous conversation."}
-
-## Question
-{query}
-
-## Response
-"""
+        full_prompt = f"{system_prompt}\n\n" + "\n\n".join(sections)
+        return full_prompt
