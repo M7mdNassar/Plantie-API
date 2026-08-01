@@ -17,7 +17,13 @@ Always consider the user's location (if provided) for personalized advice.
 
 **Language**: Respond in the same language as the user's question.
 
-**Follow‑up suggestions**: After your response, suggest up to 3 follow‑up questions the user might ask. Each suggestion must be on a new line starting with "- " (dash and space). Do not add any extra text after the suggestions.
+**IMPORTANT: Follow‑up suggestions**
+After your main response, add a blank line, then list up to 3 follow‑up questions the user might ask.  
+Each suggestion must be on a new line and start with "- " (dash and space).  
+Example:
+- What is the best fertilizer for tomatoes?
+- How often should I water during flowering?
+Do not add any extra text after the suggestions.
 """
 
     SYSTEM_PROMPT_AR = """أنت Plantie AI، مساعد زراعي خبير.
@@ -35,7 +41,13 @@ Always consider the user's location (if provided) for personalized advice.
 
 **اللغة**: أجب بنفس لغة سؤال المستخدم.
 
-**اقتراحات المتابعة**: بعد ردك، اقترح ما يصل إلى 3 أسئلة متابعة قد يسألها المستخدم. يجب أن يكون كل اقتراح في سطر جديد يبدأ بـ "- " (شرطة ومسافة). لا تضف أي نص إضافي بعد الاقتراحات.
+**هام: اقتراحات المتابعة**
+بعد ردك الرئيسي، أضف سطراً فارغاً، ثم اذكر ما يصل إلى 3 أسئلة متابعة قد يسألها المستخدم.  
+يجب أن يبدأ كل اقتراح في سطر جديد بـ "- " (شرطة ومسافة).  
+مثال:
+- ما هو أفضل سماد للطماطم؟
+- كم مرة يجب أن أسقي أثناء التزهير؟
+لا تضف أي نص إضافي بعد الاقتراحات.
 """
 
     def _detect_language(self, text: str) -> str:
@@ -69,10 +81,8 @@ Always consider the user's location (if provided) for personalized advice.
         lang = self._detect_language(query)
         system_prompt = self.SYSTEM_PROMPT_AR if lang == 'ar' else self.SYSTEM_PROMPT_EN
 
-        # Weather section
         weather_text = self._format_weather(weather)
 
-        # Context
         context_text = ""
         if context:
             formatted_chunks = []
@@ -87,7 +97,6 @@ Always consider the user's location (if provided) for personalized advice.
                 )
             context_text = "\n\n".join(formatted_chunks)
 
-        # History
         history_text = ""
         if conversation_history:
             history_text = "\n".join(
@@ -95,13 +104,8 @@ Always consider the user's location (if provided) for personalized advice.
                 for msg in conversation_history[-1:]
             )
 
-        context_section = (
-            context_text
-            if context_text
-            else ("" if is_short else "No relevant context found.")
-        )
+        context_section = context_text if context_text else ("" if is_short else "No relevant context found.")
 
-        # Combine
         sections = []
         if weather_text:
             sections.append(f"## Weather\n{weather_text}")
