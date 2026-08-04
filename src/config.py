@@ -18,12 +18,12 @@ class Settings(BaseSettings):
     SUPABASE_SERVICE_ROLE_KEY: str
     SUPABASE_JWT_SECRET: str
 
-    # ── Gemini (fallback LLM + fallback embeddings) ─────────────────────
+    # ── Gemini
     GEMINI_API_KEY: Optional[str] = None
-    GEMINI_MODEL: str = "models/gemini-1.5-flash-8b"
+    GEMINI_MODEL: str = "models/gemini-2.5-flash"
     GEMINI_EMBEDDING_MODEL: str = "models/gemini-embedding-001"
 
-    # ── Mistral (primary LLM) ───────────────────────────────────────────
+    # ── Mistral
     MISTRAL_API_KEY: Optional[str] = None
     MISTRAL_MODEL: str = "mistral-small-latest"
     LLM_PROVIDER: str = "gemini"  # "mistral" | "gemini"
