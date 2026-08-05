@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sse_starlette.sse import EventSourceResponse
+import json
 
 from src.api.dependencies.auth import get_current_user
 from src.api.models.chat import ChatRequest
@@ -38,7 +39,13 @@ async def chat_stream(
             location=request.location,
             weather=request.weather,
         ):
-            yield {"data": chunk}
+            # JSON-encode each chunk. Raw text gets split across multiple
+            # SSE "data:" lines whenever it contains a newline, and the
+            # client's .trim() on each line eats real leading/trailing
+            # spaces too — together that's exactly the missing-space,
+            # collapsed-markdown bug. A JSON string keeps the payload on
+            # one line and protects the spaces inside the quotes.
+            yield {"data": json.dumps({"content": chunk})}
         yield {"data": "[DONE]"}
 
     return EventSourceResponse(event_generator())

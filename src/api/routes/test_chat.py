@@ -6,6 +6,7 @@ entirely.
 """
 
 import asyncio
+import json
 
 from fastapi import APIRouter, Request
 from sse_starlette.sse import EventSourceResponse
@@ -58,7 +59,8 @@ async def test_chat_stream(request: ChatRequest, req: Request):
             location=request.location,
             weather=request.weather,
         ):
-            yield {"data": chunk}
+            # Same JSON-encoding fix as the real endpoint — see comment there.
+            yield {"data": json.dumps({"content": chunk})}
         yield {"data": "[DONE]"}
 
     return EventSourceResponse(event_generator())
