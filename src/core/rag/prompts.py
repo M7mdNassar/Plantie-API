@@ -16,14 +16,6 @@ If the user asks about something not in the context, use your general knowledge.
 Always consider the user's location (if provided) for personalized advice.
 
 **Language**: Respond in the same language as the user's question.
-
-**IMPORTANT: Follow‑up suggestions**
-After your main response, add a blank line, then list up to 3 follow‑up questions the user might ask.  
-Each suggestion must be on a new line and start with "- " (dash and space).  
-Example:
-- What is the best fertilizer for tomatoes?
-- How often should I water during flowering?
-Do not add any extra text after the suggestions.
 """
 
     SYSTEM_PROMPT_AR = """أنت Plantie AI، مساعد زراعي خبير.
@@ -40,14 +32,6 @@ Do not add any extra text after the suggestions.
 ضع في اعتبارك دائماً موقع المستخدم (إذا تم توفيره) للحصول على نصائح مخصصة.
 
 **اللغة**: أجب بنفس لغة سؤال المستخدم.
-
-**هام: اقتراحات المتابعة**
-بعد ردك الرئيسي، أضف سطراً فارغاً، ثم اذكر ما يصل إلى 3 أسئلة متابعة قد يسألها المستخدم.  
-يجب أن يبدأ كل اقتراح في سطر جديد بـ "- " (شرطة ومسافة).  
-مثال:
-- ما هو أفضل سماد للطماطم؟
-- كم مرة يجب أن أسقي أثناء التزهير؟
-لا تضف أي نص إضافي بعد الاقتراحات.
 """
 
     def _detect_language(self, text: str) -> str:

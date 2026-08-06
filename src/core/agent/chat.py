@@ -5,6 +5,7 @@ connections get reused instead of a fresh TLS handshake every time.
 """
 
 import asyncio
+import json
 from typing import AsyncGenerator, Dict, List, Optional, Any
 
 import google.generativeai as genai
@@ -14,8 +15,10 @@ from src.config import get_settings
 from src.core.rag.prompts import PromptBuilder
 from src.core.rag.retriever import Retriever
 from src.services.supabase.database import DatabaseService
+from src.utils.logging import get_logger
 
 settings = get_settings()
+logger = get_logger()
 
 
 class ChatAgent:
@@ -69,6 +72,54 @@ class ChatAgent:
                     yield chunk.text
         except Exception as e:
             yield f"Error: {str(e)}"
+
+    async def generate_suggestions(self, user_message: str, assistant_response: str) -> List[str]:
+        """Generates 3 short follow-up questions as a genuinely separate,
+        structured call — never scraped out of the streamed answer's free
+        text. This is what makes suggestion chips reliable: there is no
+        formatting convention for a regex to get wrong, because the model
+        is asked for nothing but a JSON object here.
+        """
+        if self.provider != "mistral":
+            return []  # Gemini fallback: no suggestions yet, keep scope tight
+        if len(user_message) <= settings.SHORT_QUERY_THRESHOLD:
+            return []  # not worth the extra call for "hi" / "thanks"
+
+        lang = self.prompt_builder._detect_language(user_message)
+        instruction = (
+            'بناءً على هذا التبادل، اقترح 3 أسئلة متابعة قصيرة وطبيعية قد يطرحها '
+            'المستخدم بعد ذلك. أجب فقط بصيغة JSON صالحة على هذا الشكل: '
+            '{"suggestions": ["...", "...", "..."]} بدون أي نص إضافي.'
+            if lang == "ar"
+            else
+            'Based on this exchange, suggest 3 short, natural follow-up '
+            'questions the user might ask next. Respond with ONLY valid '
+            'JSON in this exact shape: {"suggestions": ["...", "...", "..."]} '
+            '— no extra text, no markdown.'
+        )
+        try:
+            response = await self.client.chat.complete_async(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": (
+                            f"User asked: {user_message}\n"
+                            f"Assistant answered: {assistant_response[:800]}\n\n"
+                            f"{instruction}"
+                        ),
+                    }
+                ],
+                response_format={"type": "json_object"},
+                temperature=0.5,
+                max_tokens=250,
+            )
+            data = json.loads(response.choices[0].message.content)
+            suggestions = data.get("suggestions", [])
+            return [s for s in suggestions if isinstance(s, str)][:3]
+        except Exception as e:
+            logger.error(f"Suggestion generation failed: {e}")
+            return []  # never let a suggestions failure break the actual chat turn
 
     async def stream_response(
         self,
