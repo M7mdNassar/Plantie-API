@@ -142,18 +142,22 @@ class ChatAgent:
             context_chunks = []
             conversation = await self.db.get_conversation(conversation_id, user_id)
 
-        # 2. Conversation handling
+        # 2. Conversation handling. id is passed explicitly so the row
+        # Supabase creates has the SAME id the client already generated —
+        # otherwise every conversation after the first message silently
+        # diverges between client and server.
         if conversation is None:
-            new_conv = await self.db.create_conversation(
+            await self.db.create_conversation(
+                conversation_id=conversation_id,
                 user_id=user_id,
                 session_id=session_id,
-                title=message[:50] + "...",
+                title=(message[:50] + "...") if message else "New Chat",
             )
-            conversation_id = new_conv["id"]
-            conversation = new_conv
-            history = []
+            history: List[Dict[str, str]] = []
         else:
-            history = conversation.get("messages", [])[-settings.RAG_MAX_HISTORY :]
+            # One SELECT against an indexed (conversation_id, created_at)
+            # table — not "read the whole growing blob and slice it."
+            history = await self.db.get_recent_messages(conversation_id, limit=settings.RAG_MAX_HISTORY)
 
         # 3. Build prompt with weather
         prompt = self.prompt_builder.build(
@@ -177,14 +181,13 @@ class ChatAgent:
                 full_response += chunk
                 yield chunk
 
-            # 5. Save conversation
-            updated_messages = history + [{"user": message, "assistant": full_response}]
-            await self.db.update_conversation(
-                conversation_id=conversation_id,
-                user_id=user_id,
-                messages=updated_messages,
-                message_count=len(updated_messages),
-                tokens_used=0,
-            )
+            # 5. Persist the turn. Two O(1) inserts + one lightweight
+            # metadata bump — NOT a rewrite of the entire conversation.
+            # This is the whole : write cost no longer grows with how
+            # long the conversation already is.
+            await self.db.add_message(conversation_id, "user", message or "[image]")
+            await self.db.add_message(conversation_id, "assistant", full_response)
+            await self.db.touch_conversation(conversation_id, user_id, message_count_increment=2)
         except Exception as e:
+            logger.error(f"Streaming failed for conversation {conversation_id}: {e}")
             yield f"Error: {str(e)}"
