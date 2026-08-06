@@ -1,6 +1,7 @@
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sse_starlette.sse import EventSourceResponse
-import json
 
 from src.api.dependencies.auth import get_current_user
 from src.api.models.chat import ChatRequest
@@ -31,6 +32,7 @@ async def chat_stream(
     logger.info(f"Chat request from user {user_id}")
 
     async def event_generator():
+        full_response = ""
         async for chunk in agent.stream_response(
             user_id=user_id,
             message=request.message,
@@ -39,6 +41,7 @@ async def chat_stream(
             location=request.location,
             weather=request.weather,
         ):
+            full_response += chunk
             # JSON-encode each chunk. Raw text gets split across multiple
             # SSE "data:" lines whenever it contains a newline, and the
             # client's .trim() on each line eats real leading/trailing
@@ -46,6 +49,15 @@ async def chat_stream(
             # collapsed-markdown bug. A JSON string keeps the payload on
             # one line and protects the spaces inside the quotes.
             yield {"data": json.dumps({"content": chunk})}
+
+        # Suggestions are generated as a separate, structured call — never
+        # scraped out of the streamed prose above. Sent as its own event
+        # (distinguishable by having a "suggestions" key instead of
+        # "content") so the client never needs to regex the answer text.
+        suggestions = await agent.generate_suggestions(request.message, full_response)
+        if suggestions:
+            yield {"data": json.dumps({"suggestions": suggestions})}
+
         yield {"data": "[DONE]"}
 
     return EventSourceResponse(event_generator())
