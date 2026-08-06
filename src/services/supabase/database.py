@@ -186,7 +186,7 @@ class DatabaseService:
                 .limit(limit * 2)  # each turn is 2 rows (user + assistant)
                 .execute()
             )
-            rows = list(reversed(response.data))  # back to chronological order
+            rows = list(reversed(response.data))  # back to chronological order.
 
             turns: List[Dict[str, str]] = []
             pending_user: Optional[str] = None
