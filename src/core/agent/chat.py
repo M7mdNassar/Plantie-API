@@ -14,6 +14,7 @@ from mistralai import Mistral
 from src.config import get_settings
 from src.core.rag.prompts import PromptBuilder
 from src.core.rag.retriever import Retriever
+from src.core.agent.weather_service import WeatherService
 from src.services.supabase.database import DatabaseService
 from src.utils.logging import get_logger
 
@@ -26,6 +27,7 @@ class ChatAgent:
         self.retriever = retriever
         self.db = db
         self.prompt_builder = PromptBuilder()
+        self.weather_service = WeatherService()
         self.provider = settings.LLM_PROVIDER
 
         if self.provider == "mistral":
@@ -58,10 +60,11 @@ class ChatAgent:
                     if chunk.data.choices and chunk.data.choices[0].delta.content is not None:
                         yield chunk.data.choices[0].delta.content
         except Exception as e:
+            logger.error(f"Mistral stream error: {e}")
             yield f"Error: {str(e)}"
 
     async def _stream_gemini(self, prompt: str, message: str) -> AsyncGenerator[str, None]:
-        """Fallback Gemini streaming."""
+        """Gemini streaming."""
         try:
             response = self.model.generate_content(
                 f"{prompt}\n\nUser: {message}\nAssistant:",
@@ -71,19 +74,15 @@ class ChatAgent:
                 if chunk.text:
                     yield chunk.text
         except Exception as e:
+            logger.error(f"Gemini stream error: {e}")
             yield f"Error: {str(e)}"
 
     async def generate_suggestions(self, user_message: str, assistant_response: str) -> List[str]:
         """Generates 3 short follow-up questions as a genuinely separate,
-        structured call — never scraped out of the streamed answer's free
-        text. This is what makes suggestion chips reliable: there is no
-        formatting convention for a regex to get wrong, because the model
-        is asked for nothing but a JSON object here.
+        structured call — works for both Mistral and Gemini.
         """
-        if self.provider != "mistral":
-            return []  # Gemini fallback: no suggestions yet, keep scope tight
         if len(user_message) <= settings.SHORT_QUERY_THRESHOLD:
-            return []  # not worth the extra call for "hi" / "thanks"
+            return []
 
         lang = self.prompt_builder._detect_language(user_message)
         instruction = (
@@ -97,29 +96,46 @@ class ChatAgent:
             'JSON in this exact shape: {"suggestions": ["...", "...", "..."]} '
             '— no extra text, no markdown.'
         )
-        try:
-            response = await self.client.chat.complete_async(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": (
-                            f"User asked: {user_message}\n"
-                            f"Assistant answered: {assistant_response[:800]}\n\n"
-                            f"{instruction}"
-                        ),
-                    }
-                ],
-                response_format={"type": "json_object"},
-                temperature=0.5,
-                max_tokens=250,
-            )
-            data = json.loads(response.choices[0].message.content)
-            suggestions = data.get("suggestions", [])
-            return [s for s in suggestions if isinstance(s, str)][:3]
-        except Exception as e:
-            logger.error(f"Suggestion generation failed: {e}")
-            return []  # never let a suggestions failure break the actual chat turn
+        prompt = (
+            f"User asked: {user_message}\n"
+            f"Assistant answered: {assistant_response[:800]}\n\n"
+            f"{instruction}"
+        )
+
+        if self.provider == "mistral":
+            try:
+                response = await self.client.chat.complete_async(
+                    model=self.model,
+                    messages=[{"role": "user", "content": prompt}],
+                    response_format={"type": "json_object"},
+                    temperature=0.5,
+                    max_tokens=250,
+                )
+                data = json.loads(response.choices[0].message.content)
+                suggestions = data.get("suggestions", [])
+                return [s for s in suggestions if isinstance(s, str)][:3]
+            except Exception as e:
+                logger.error(f"Mistral suggestion generation failed: {e}")
+                return []
+
+        elif self.provider == "gemini":
+            try:
+                response = await self.model.generate_content_async(
+                    prompt,
+                    generation_config=genai.types.GenerationConfig(
+                        temperature=0.5,
+                        max_output_tokens=250,
+                        response_mime_type="application/json",
+                    )
+                )
+                data = json.loads(response.text)
+                suggestions = data.get("suggestions", [])
+                return [s for s in suggestions if isinstance(s, str)][:3]
+            except Exception as e:
+                logger.error(f"Gemini suggestion generation failed: {e}")
+                return []
+
+        return []
 
     async def stream_response(
         self,
@@ -130,7 +146,7 @@ class ChatAgent:
         location: Optional[Dict[str, float]] = None,
         weather: Optional[Dict[str, Any]] = None,
     ) -> AsyncGenerator[str, None]:
-        # 1. Skip retrieval for short, likely conversational queries.
+        # 1. Retrieve RAG context
         is_short = len(message) <= settings.SHORT_QUERY_THRESHOLD
         should_retrieve = not (settings.SKIP_RETRIEVAL_FOR_SHORT_QUERIES and is_short)
 
@@ -142,10 +158,7 @@ class ChatAgent:
             context_chunks = []
             conversation = await self.db.get_conversation(conversation_id, user_id)
 
-        # 2. Conversation handling. id is passed explicitly so the row
-        # Supabase creates has the SAME id the client already generated —
-        # otherwise every conversation after the first message silently
-        # diverges between client and server.
+        # 2. Conversation handling
         if conversation is None:
             await self.db.create_conversation(
                 conversation_id=conversation_id,
@@ -153,22 +166,45 @@ class ChatAgent:
                 session_id=session_id,
                 title=(message[:50] + "...") if message else "New Chat",
             )
-            history: List[Dict[str, str]] = []
+            history = []
         else:
-            # One SELECT against an indexed (conversation_id, created_at)
-            # table — not "read the whole growing blob and slice it."
             history = await self.db.get_recent_messages(conversation_id, limit=settings.RAG_MAX_HISTORY)
 
-        # 3. Build prompt with weather
+        # 3. ── 🔥 THE AGENT UPGRADE ──
+        # Fetch fresh weather from backend if location is provided.
+        # This overrides any frontend-supplied weather for freshness & reliability.
+        fetched_weather = weather  # fallback
+        if location and isinstance(location, dict):
+            lat = location.get("latitude")
+            lon = location.get("longitude")
+            if lat is not None and lon is not None:
+                try:
+                    raw = await self.weather_service.get_current_weather(lat, lon)
+                    # Map Open-Meteo keys to the shape prompt builder expects
+                    fetched_weather = {
+                        "temperature": raw.get("temperature"),
+                        "humidity": raw.get("humidity"),
+                        "precipitation": raw.get("precipitation"),
+                        "wind_speed": raw.get("wind_speed"),
+                        "weather_code": raw.get("weather_code"),
+                        "condition": self._map_weather_code(raw.get("weather_code")),
+                        "is_day": raw.get("is_day"),
+                    }
+                    logger.info(f"Weather fetched for ({lat}, {lon})")
+                except Exception as e:
+                    logger.warning(f"Could not fetch weather, using fallback if any: {e}")
+                    # fallback to frontend-provided weather if available
+
+        # 4. Build prompt with weather (fetched or fallback)
         prompt = self.prompt_builder.build(
             query=message,
             context=context_chunks,
             conversation_history=history,
             is_short=is_short,
-            weather=weather,
+            weather=fetched_weather,
         )
 
-        # 4. Stream from selected provider
+        # 5. Stream from selected provider
         generator = (
             self._stream_mistral(prompt, message)
             if self.provider == "mistral"
@@ -181,13 +217,32 @@ class ChatAgent:
                 full_response += chunk
                 yield chunk
 
-            # 5. Persist the turn. Two O(1) inserts + one lightweight
-            # metadata bump — NOT a rewrite of the entire conversation.
-            # This is the whole : write cost no longer grows with how
-            # long the conversation already is.
+            # 6. Persist the turn
             await self.db.add_message(conversation_id, "user", message or "[image]")
             await self.db.add_message(conversation_id, "assistant", full_response)
             await self.db.touch_conversation(conversation_id, user_id, message_count_increment=2)
         except Exception as e:
             logger.error(f"Streaming failed for conversation {conversation_id}: {e}")
             yield f"Error: {str(e)}"
+
+    def _map_weather_code(self, code: Optional[int]) -> str:
+        """Convert Open-Meteo weather code to a readable condition string."""
+        if code is None:
+            return "Unknown"
+        if code == 0:
+            return "Clear sky"
+        if code <= 3:
+            return "Partly cloudy"
+        if code <= 48:
+            return "Foggy"
+        if code <= 57:
+            return "Drizzle"
+        if code <= 67:
+            return "Rainy"
+        if code <= 77:
+            return "Snowy"
+        if code <= 82:
+            return "Rain showers"
+        if code <= 99:
+            return "Thunderstorm"
+        return "Unknown"
