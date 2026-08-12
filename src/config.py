@@ -1,4 +1,3 @@
-# src/config.py
 from functools import lru_cache
 from typing import Optional
 
@@ -28,12 +27,12 @@ class Settings(BaseSettings):
     MISTRAL_MODEL: str = "mistral-small-latest"
     LLM_PROVIDER: str = "gemini"  # "mistral" | "gemini"
 
-    # ── Embeddings (local, always fastembed) ────────────────────────────
+    # ── Embeddings
     EMBEDDING_PROVIDER: str = "fastembed"
     FASTEMBED_MODEL: str = "BAAI/bge-small-en-v1.5"
     FASTEMBED_CACHE_DIR: str = "/app/.fastembed_cache"
 
-    # ── RAG ──────────────────────────────────────────────────────────────
+    # ── RAG
     RAG_CHUNK_SIZE: int = 1000
     RAG_CHUNK_OVERLAP: int = 200
     RAG_TOP_K: int = 5
@@ -49,6 +48,9 @@ class Settings(BaseSettings):
 
     # ── Logging ──────────────────────────────────────────────────────────
     LOG_LEVEL: str = "INFO"
+
+    # ── Weather (optional, Open-Meteo is free) ─────────────────────────
+    WEATHER_API_KEY: Optional[str] = None   # reserved for future use
 
     model_config = SettingsConfigDict(
         env_file=".env",

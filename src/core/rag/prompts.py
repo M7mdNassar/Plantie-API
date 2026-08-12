@@ -6,6 +6,8 @@ class PromptBuilder:
 
 You have access to a knowledge base about farming, plant diseases, treatments, and best practices.
 
+**Weather Awareness**: If the user's current weather data is provided below, you MUST refer to it explicitly when the question relates to farming activities (irrigation, spraying, planting, frost risk, harvesting). For example: "Based on your current temperature of 28°C and no rain, it's a good time to irrigate."
+
 Your responses should be:
 - **Accurate** and based on the provided context
 - **Practical** and actionable
@@ -21,6 +23,8 @@ Always consider the user's location (if provided) for personalized advice.
     SYSTEM_PROMPT_AR = """أنت Plantie AI، مساعد زراعي خبير.
 
 لديك إمكانية الوصول إلى قاعدة معرفية حول الزراعة وأمراض النباتات والعلاجات وأفضل الممارسات.
+
+**الوعي بالطقس**: إذا تم توفير بيانات الطقس الحالية للمستخدم أدناه، يجب عليك الرجوع إليها صراحةً عندما يتعلق السؤال بالأنشطة الزراعية (الري، الرش، الزراعة، خطر الصقيع، الحصاد). مثال: "بناءً على درجة الحرارة الحالية البالغة 28 درجة مئوية وعدم وجود مطر، هذا وقت مناسب للري."
 
 يجب أن تكون ردودك:
 - **دقيقة** وتعتمد على السياق المقدم
@@ -42,16 +46,18 @@ Always consider the user's location (if provided) for personalized advice.
         if not weather:
             return ""
         parts = []
-        if "temperature" in weather:
+        if weather.get("temperature") is not None:
             parts.append(f"Temperature: {weather['temperature']}°C")
-        if "humidity" in weather:
+        if weather.get("humidity") is not None:
             parts.append(f"Humidity: {weather['humidity']}%")
-        if "condition" in weather:
+        if weather.get("condition"):
             parts.append(f"Condition: {weather['condition']}")
-        if "wind_speed" in weather:
+        if weather.get("wind_speed") is not None:
             parts.append(f"Wind: {weather['wind_speed']} km/h")
-        if "precipitation" in weather:
+        if weather.get("precipitation") is not None:
             parts.append(f"Precipitation: {weather['precipitation']} mm")
+        if weather.get("is_day") is not None:
+            parts.append("Daytime" if weather['is_day'] else "Nighttime")
         return "Current weather at user's location:\n" + "\n".join(parts) if parts else ""
 
     def build(
