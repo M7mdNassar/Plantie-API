@@ -1,10 +1,14 @@
 from functools import lru_cache
 from typing import Optional
-
+import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    # Which env file to load: "dev" -> .env.dev, anything else -> .env
+    _APP_ENV = os.getenv("APP_ENV", "prod").lower()
+    _ENV_FILE = f".env.{_APP_ENV}" if _APP_ENV != "prod" else ".env"
+
     # ── App ──────────────────────────────────────────────────────────────
     APP_NAME: str = "Plantie AI Backend"
     APP_VERSION: str = "1.0.0"
@@ -19,7 +23,7 @@ class Settings(BaseSettings):
 
     # ── Gemini
     GEMINI_API_KEY: Optional[str] = None
-    GEMINI_MODEL: str = "models/gemini-2.5-flash"
+    GEMINI_MODEL: str = "models/gemini-3.8-flash"
     GEMINI_EMBEDDING_MODEL: str = "models/gemini-embedding-001"
 
     # ── Mistral
@@ -53,7 +57,7 @@ class Settings(BaseSettings):
     WEATHER_API_KEY: Optional[str] = None   # reserved for future use
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=_ENV_FILE,
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -61,7 +65,6 @@ class Settings(BaseSettings):
     @property
     def gemini_api_key(self) -> Optional[str]:
         return self.GEMINI_API_KEY
-
 
 @lru_cache()
 def get_settings() -> Settings:
