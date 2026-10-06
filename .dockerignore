@@ -4,3 +4,25 @@ __pycache__
 .git
 .env
 pdfs
+
+
+# Secrets — never bake these into the image
+.env.*
+!.env.example
+
+# Local model cache — the image bakes its own copy
+.fastembed_cache/
+
+# PDFs are only needed for the one-off indexing script, not the runtime image
+pdfs/
+
+# Dev clutter
+.git/
+.github/
+.venv/
+__pycache__/
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.DS_Store

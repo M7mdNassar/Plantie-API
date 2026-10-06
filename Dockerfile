@@ -36,4 +36,5 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
     CMD curl -f http://localhost:8000/api/v1/health || exit 1
 
 ENV WEB_CONCURRENCY=1
+ENV APP_ENV=prod
 CMD ["sh", "-c", "gunicorn src.main:app --worker-class uvicorn.workers.UvicornWorker --workers ${WEB_CONCURRENCY} --bind 0.0.0.0:8000 --timeout 120 --access-logfile - --error-logfile -"]
