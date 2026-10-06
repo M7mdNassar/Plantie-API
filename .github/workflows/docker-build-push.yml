@@ -27,16 +27,22 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # Only prod redeploys from main
+  deploy-prod:
+    needs: build-and-push
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
       - name: Trigger Render PROD deploy
-        if: github.ref == 'refs/heads/main'
+        run: curl -fsS -X POST "$HOOK"
         env:
           HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
-        run: curl -fsS -X POST "$HOOK"
 
-      # Only dev redeploys from dev
+  deploy-dev:
+    needs: build-and-push
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    steps:
       - name: Trigger Render DEV deploy
-        if: github.ref == 'refs/heads/dev'
+        run: curl -fsS -X POST "$HOOK"
         env:
           HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_DEV }}
-        run: curl -fsS -X POST "$HOOK"
