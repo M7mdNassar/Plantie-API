@@ -23,7 +23,7 @@ class Settings(BaseSettings):
 
     # ── Gemini
     GEMINI_API_KEY: Optional[str] = None
-    GEMINI_MODEL: str = "models/gemini-3.8-flash"
+    GEMINI_MODEL: str = "models/gemini-3.1-flash-lite"
     GEMINI_EMBEDDING_MODEL: str = "models/gemini-embedding-001"
 
     # ── Mistral
