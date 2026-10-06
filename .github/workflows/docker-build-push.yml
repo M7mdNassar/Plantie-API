@@ -2,7 +2,7 @@ name: Build and deploy
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
 
 jobs:
   build-and-push:
@@ -31,8 +31,14 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Trigger Render deploy
+      - name: Trigger Render PROD deploy
+        if: github.ref == 'refs/heads/main'
         env:
-          RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
-        if: ${{ env.RENDER_DEPLOY_HOOK != '' }}
-        run: curl -fsS -X POST "$RENDER_DEPLOY_HOOK"
+          HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+        run: curl -fsS -X POST "$HOOK"
+
+      - name: Trigger Render DEV deploy
+        if: github.ref == 'refs/heads/dev'
+        env:
+          HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_DEV }}
+        run: curl -fsS -X POST "$HOOK"
